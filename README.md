@@ -8,6 +8,11 @@ The catch: you still have to author the thing. Strict schema, six top-level keys
 
 This tool closes that gap in one screen. You describe the policy. The model writes the extension. **The real CLI decides whether it is legal.**
 
+https://github.com/user-attachments/assets/c35af525-92d8-443e-92e3-e0a3dda66e65
+
+<img width="1581" height="1139" alt="Screenshot at Oct 23 14-07-24" src="https://github.com/user-attachments/assets/5c5afb59-e7bc-456e-9a70-48875018a5ef" />
+<img width="1280" height="1972" alt="ui-fixed" src="https://github.com/user-attachments/assets/447b23b6-2e6d-4a35-ae09-c650e84a0fc8" />
+
 ## What actually happens
 
 1. **Compile.** Your policy plus the live command surface of the installed binary go to an OpenAI-compatible endpoint (Particle.ai by default). The model returns the extension name, the commands it contributes, and the wrapper scripts. The YAML is rendered by the server, so structure is always legal.
