@@ -1,7 +1,68 @@
-node_modules
-dist
-.venv
-.env
-*.log
-.DS_Store
+# ---- node ----------------------------------------------------------------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.tsbuildinfo
 tsconfig.tsbuildinfo
+
+# ---- python (the agents-cli judge lives here) ----------------------------
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- secrets and local config -------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.envrc
+
+# ---- generated run artifacts --------------------------------------------
+# The app writes sandbox projects under OVERRIDE_SCRATCH, which defaults to
+# ~/.hermes/cache/scratch/the-override. Nothing lands here unless you point
+# OVERRIDE_SCRATCH at the repo, in which case these keep it out of git.
+scratch/
+sessions/
+*.ndjson
+
+# ---- test and tool output -----------------------------------------------
+coverage/
+playwright-report/
+test-results/
+.playwright/
+blob-report/
+*.lcov
+
+# ---- archives and screenshots you do not ship ---------------------------
+*.zip
+*.tar.gz
+screens/*.mp4
+screens/*.webm
+screens/video/
+
+# ---- editor and OS noise ------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+.nvim.lua
+
+# ---- logs ---------------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

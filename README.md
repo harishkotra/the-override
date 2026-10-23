@@ -109,9 +109,3 @@ The model writes bash and the app runs it, by design. It runs in a scratch proje
 
 - [`google/agents-cli`](https://github.com/google/agents-cli) v1.11.0, Extension System (experimental)
 - Particle.ai, OpenAI-compatible chat completions
-
----
-
-Built By Harish Kotra, [harishkotra.me](https://harishkotra.me)
-
-Checkout my other builds, [dailybuild.xyz](https://dailybuild.xyz)
