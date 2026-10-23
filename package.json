@@ -1,0 +1,26 @@
+{
+  "name": "the-override",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Write your org's agents-cli policy in English. Get a working extension, verified by the real CLI.",
+  "scripts": {
+    "dev": "node server.mjs & vite",
+    "build": "tsc -b && vite build",
+    "start": "node server.mjs",
+    "preview": "vite preview",
+    "smoke": "node scripts/ui-smoke.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "playwright": "^1.64.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}
