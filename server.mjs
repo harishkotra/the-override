@@ -10,6 +10,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 
 const PORT = Number(process.env.PORT || 8791)
+const HOST = process.env.HOST || '127.0.0.1'
 const ROOT = path.dirname(new URL(import.meta.url).pathname)
 const SCRATCH = process.env.OVERRIDE_SCRATCH || path.join(os.homedir(), '.hermes', 'cache', 'scratch', 'the-override')
 
@@ -468,7 +469,7 @@ const server = http.createServer(async (req, res) => {
   }
 })
 
-server.listen(PORT, '127.0.0.1', async () => {
+server.listen(PORT, HOST, async () => {
   const s = await surface().catch(() => ({ version: 'missing', top: [], dotted: {} }))
-  console.log(`the-override api on http://127.0.0.1:${PORT} — agents-cli ${s.version} (${CLI_BIN})`)
+  console.log(`the-override api on http://${HOST}:${PORT} — agents-cli ${s.version} (${CLI_BIN})`)
 })

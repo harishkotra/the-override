@@ -54,19 +54,35 @@ Exit 1. Nothing deployed. No fork, no wrapper layer, no CI change.
 
 ## Run it
 
+Fastest path, from a fresh unzip:
+
 ```bash
-git clone <this repo> && cd the-override
+./setup.sh          # checks node+python, builds ./.venv with agents-cli 1.11.0, npm ci, builds the UI
+# put PARTICLE_API_KEY in .env
+npm start           # http://127.0.0.1:8791
+```
+
+By hand, if you prefer:
+
+```bash
 python3 -m venv .venv && .venv/bin/pip install google-agents-cli==1.11.0
 npm install
-
 cp .env.example .env      # set PARTICLE_API_KEY (any OpenAI-compatible endpoint works)
 npm run dev               # vite on :5273, api on :8791
 ```
+
+Requirements: Node 18+, Python 3.11+ (agents-cli imports modern typing), and a macOS or Linux shell.
 
 Single-port build:
 
 ```bash
 npm run build && npm start   # everything on http://127.0.0.1:8791
+```
+
+Reach it from another device on the same wifi:
+
+```bash
+HOST=0.0.0.0 PORT=8791 npm start    # then http://<machine-ip>:8791
 ```
 
 Smoke test the whole flow headlessly:
