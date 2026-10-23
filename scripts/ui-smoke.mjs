@@ -14,7 +14,7 @@ console.log('TITLE:', await page.title())
 console.log('HEADER:', (await page.locator('header').innerText()).replace(/\n/g, ' | '))
 
 await page.getByRole('button', { name: /Compile extension/ }).click({ timeout: 150000 })
-await page.waitForSelector('.verdict', { timeout: 180000 })
+await page.waitForSelector('.verdict.pass, .verdict.fail', { timeout: 240000 })
 await page.waitForTimeout(1200)
 
 console.log('\nVERDICT:', (await page.locator('.verdict').innerText()).replace(/\n/g, ' | '))

@@ -11,6 +11,7 @@ type Spec = {
   demo?: { command: string; argv?: string[] }
 }
 type Step = { label: string; cmd: string; code: number; out: string; ms: number; note?: string }
+type Verdict = { id: string; installed: boolean; verdict: string; contributed: { override: string[]; add: string[] }; dir: string }
 type Health = {
   agentsCliVersion: string
   commands: number
@@ -82,7 +83,8 @@ export default function App() {
   const [policy, setPolicy] = useState(EXAMPLES[0].text)
   const [busy, setBusy] = useState<'' | 'compile' | 'verify' | 'run' | 'bypass'>('')
   const [spec, setSpec] = useState<Spec | null>(null)
-  const [verify, setVerify] = useState<{ id: string; installed: boolean; verdict: string; steps: Step[]; contributed: { override: string[]; add: string[] }; dir: string } | null>(null)
+  const [vSteps, setVSteps] = useState<Step[]>([])
+  const [vInfo, setVInfo] = useState<Verdict | null>(null)
   const [extra, setExtra] = useState<Step | null>(null)
   const [tab, setTab] = useState<'manifest' | 'script' | 'why'>('manifest')
   const [fileIdx, setFileIdx] = useState(0)
@@ -97,7 +99,7 @@ export default function App() {
         setHealth(h)
         setModel(h.defaultModel)
       })
-      .catch(() => setErr('api not running — start it with `npm run dev`'))
+      .catch(() => setErr('api not running, start it with `npm run dev`'))
   }, [])
 
   const contributed = useMemo(() => {
@@ -105,10 +107,7 @@ export default function App() {
     return [...Object.keys(spec.commands?.override || {}), ...Object.keys(spec.commands?.add || {})]
   }, [spec])
 
-  const stage = useMemo(() => {
-    const hit = contributed.map(lifecycle).find(Boolean)
-    return hit || null
-  }, [contributed])
+  const stage = useMemo(() => contributed.map(lifecycle).find(Boolean) || null, [contributed])
 
   async function post(url: string, body: object) {
     const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
@@ -117,10 +116,44 @@ export default function App() {
     return j
   }
 
+  // /api/verify streams one NDJSON line per finished CLI invocation, so the panel
+  // fills while the real commands run instead of sitting blank for ~40 seconds.
+  async function streamVerify(s: Spec): Promise<Verdict | null> {
+    const r = await fetch('/api/verify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ spec: s }),
+    })
+    if (!r.ok || !r.body) {
+      const j = await r.json().catch(() => ({ error: r.statusText }))
+      throw new Error(j.error || 'verify failed')
+    }
+    const reader = r.body.getReader()
+    const dec = new TextDecoder()
+    let buf = ''
+    let done: Verdict | null = null
+    for (;;) {
+      const { value, done: finished } = await reader.read()
+      if (finished) break
+      buf += dec.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.trim()) continue
+        const ev = JSON.parse(line)
+        if (ev.type === 'step') setVSteps((prev) => [...prev, ev.step as Step])
+        else if (ev.type === 'done') done = ev as Verdict
+        else if (ev.type === 'error') throw new Error(ev.error)
+      }
+    }
+    return done
+  }
+
   async function onCompile() {
     setBusy('compile')
     setErr('')
-    setVerify(null)
+    setVSteps([])
+    setVInfo(null)
     setExtra(null)
     setSpec(null)
     try {
@@ -130,9 +163,9 @@ export default function App() {
       setTab('manifest')
       setFileIdx(0)
       setBusy('verify')
-      const v = await post('/api/verify', { spec: j.spec })
-      setVerify(v)
-      setTimeout(() => verifyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
+      setTimeout(() => verifyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200)
+      const done = await streamVerify(j.spec)
+      setVInfo(done)
     } catch (e: any) {
       setErr(String(e.message || e))
     } finally {
@@ -141,12 +174,11 @@ export default function App() {
   }
 
   async function onExec(kind: 'run' | 'bypass') {
-    if (!verify) return
+    if (!vInfo) return
     setBusy(kind)
     setErr('')
     try {
-      const j = await post('/api/exec', { id: verify.id, kind })
-      setExtra(j)
+      setExtra(await post('/api/exec', { id: vInfo.id, kind }))
     } catch (e: any) {
       setErr(String(e.message || e))
     } finally {
@@ -154,7 +186,10 @@ export default function App() {
     }
   }
 
-  const installCmd = spec ? (verify?.installed ? `agents-cli extension add ${'<org>'}/${spec.name}` : `agents-cli extension add local@./${spec.name}`) : ''
+  const installCmd = spec ? `agents-cli extension add <org>/${spec.name}` : ''
+  const verdictShown = vSteps.length > 0 || !!vInfo
+  const overrideCount = Object.keys(spec?.commands?.override || {}).length
+  const addCount = Object.keys(spec?.commands?.add || {}).length
 
   return (
     <div className="app">
@@ -211,7 +246,7 @@ export default function App() {
               </button>
             ))}
           </div>
-          <textarea value={policy} onChange={(e) => setPolicy(e.target.value)} spellCheck={false} rows={8} />
+          <textarea value={policy} onChange={(e) => setPolicy(e.target.value)} spellCheck={false} rows={7} />
           <div className="row">
             <button className="go" onClick={onCompile} disabled={!!busy || !health?.hasKey}>
               {!health
@@ -219,18 +254,15 @@ export default function App() {
                 : busy === 'compile'
                   ? 'compiling…'
                   : busy === 'verify'
-                    ? 'installing + verifying with the CLI…'
+                    ? 'installing + verifying…'
                     : 'Compile extension →'}
             </button>
             <span className="hint">{health?.baseUrl?.replace('https://', '')}</span>
           </div>
           {busy === 'verify' && (
-            <p className="hint" style={{ marginTop: 10, whiteSpace: 'normal' }}>
-              installing the extension into a throwaway project and reading the CLI's own answer. Each `agents-cli`
-              invocation is a cold Python start, so this takes ~30s. That delay is the price of not faking it.
-            </p>
+            <p className="hint wrap">the real CLI is running, one cold Python start per invocation.</p>
           )}
-          {!health?.hasKey && <p className="warn">No PARTICLE_API_KEY in .env — the model call will fail.</p>}
+          {!health?.hasKey && <p className="warn">No PARTICLE_API_KEY in .env, the model call will fail.</p>}
           {err && <p className="warn">{err}</p>}
           {spec && (
             <div className="rationale">
@@ -242,7 +274,7 @@ export default function App() {
                     {c}
                   </code>
                 ))}
-                {usage?.completion_tokens ? <span className="dim"> · {usage.completion_tokens} tokens out</span> : null}
+                {usage?.completion_tokens ? <span className="dim"> {usage.completion_tokens} tokens out</span> : null}
               </p>
             </div>
           )}
@@ -254,8 +286,8 @@ export default function App() {
             <div className="empty">
               <p>Nothing compiled yet.</p>
               <p className="dim">
-                An extension is one YAML file plus the scripts it runs. `run:` is an argv vector, executed with no shell, so
-                chaining has to live inside a wrapper.
+                An extension is one YAML file plus the scripts it runs. <code>run:</code> is an argv vector, executed with no
+                shell, so chaining has to live inside a wrapper.
               </p>
             </div>
           ) : (
@@ -265,7 +297,14 @@ export default function App() {
                   agents-cli-extension.yaml
                 </button>
                 {spec.files.map((f, i) => (
-                  <button key={f.path} className={tab === 'script' && fileIdx === i ? 'on' : ''} onClick={() => { setTab('script'); setFileIdx(i) }}>
+                  <button
+                    key={f.path}
+                    className={tab === 'script' && fileIdx === i ? 'on' : ''}
+                    onClick={() => {
+                      setTab('script')
+                      setFileIdx(i)
+                    }}
+                  >
                     {f.path}
                   </button>
                 ))}
@@ -278,8 +317,8 @@ export default function App() {
               {tab === 'why' && (
                 <div className="why">
                   <p>
-                    <b>{contributed.length}</b> command{contributed.length === 1 ? '' : 's'} contributed.{' '}
-                    {Object.keys(spec.commands?.override || {}).length} override, {Object.keys(spec.commands?.add || {}).length} added.
+                    <b>{contributed.length}</b> command{contributed.length === 1 ? '' : 's'} contributed. {overrideCount}{' '}
+                    override, {addCount} added.
                   </p>
                   <ul>
                     <li>
@@ -291,11 +330,15 @@ export default function App() {
                       did-you-mean instead of silently doing nothing.
                     </li>
                     <li>
-                      Reserved commands cannot be claimed: {['install', 'extension', 'info', 'login', 'setup', 'update'].map((c) => <code key={c}>{c}</code>)}.
+                      Reserved commands cannot be claimed:{' '}
+                      {['install', 'extension', 'info', 'login', 'setup', 'update'].map((c) => (
+                        <code key={c}>{c}</code>
+                      ))}
+                      .
                     </li>
                     <li>
-                      Installed extensions pin to a commit SHA in <code>agents-cli-extensions.yaml</code>, so CI runs the reviewed
-                      code, not whatever <code>main</code> is today.
+                      Installed extensions pin to a commit SHA in <code>agents-cli-extensions.yaml</code>, so CI runs the
+                      reviewed code, not whatever <code>main</code> is today.
                     </li>
                   </ul>
                 </div>
@@ -307,22 +350,27 @@ export default function App() {
 
       <section className="panel wide" ref={verifyRef}>
         <h2>3 · verdict, from the binary</h2>
-        {!verify ? (
-          <p className="dim">Compile a policy and this fills with real stdout from `agents-cli` on this machine.</p>
-        ) : (
+        {!verdictShown && busy !== 'verify' && (
+          <p className="dim">Compile a policy and this fills with real stdout from agents-cli on this machine.</p>
+        )}
+        {busy === 'verify' && !vSteps.length && <p className="dim pulse">starting agents-cli…</p>}
+        {verdictShown && (
           <>
-            <div className={`verdict ${verify.installed ? 'pass' : 'fail'}`}>
-              <span className="big">{verify.verdict}</span>
+            <div className={`verdict ${vInfo ? (vInfo.installed ? 'pass' : 'fail') : 'pending'}`}>
+              <span className="big">{vInfo ? vInfo.verdict : 'RUNNING'}</span>
               <span className="dim">
-                {verify.installed
-                  ? `installed into a throwaway project at ${verify.dir} · ${verify.contributed.override.length} override, ${verify.contributed.add.length} added`
-                  : 'the CLI refused this manifest — the exact reason is below'}
+                {vInfo
+                  ? vInfo.installed
+                    ? `installed into a throwaway project at ${vInfo.dir} · ${vInfo.contributed.override.length} override, ${vInfo.contributed.add.length} added`
+                    : 'the CLI refused this manifest, the exact reason is below'
+                  : `${vSteps.length} real invocation${vSteps.length === 1 ? '' : 's'} done so far`}
               </span>
             </div>
-            {verify.steps.map((s, i) => (
+            {vSteps.map((s, i) => (
               <Terminal key={i} step={s} />
             ))}
-            {verify.installed && (
+            {busy === 'verify' && <p className="dim pulse">reading the CLI…</p>}
+            {vInfo?.installed && (
               <div className="row">
                 <button className="go" onClick={() => onExec('run')} disabled={!!busy}>
                   {busy === 'run' ? 'running…' : 'Run the command for real'}
@@ -344,11 +392,10 @@ export default function App() {
       <footer>
         <p>
           Every line above is stdout or stderr from <code>agents-cli {health?.agentsCliVersion}</code>, installed from PyPI as{' '}
-          <code>google-agents-cli</code>. The model only writes the manifest and the scripts; the CLI decides whether they are legal.
+          <code>google-agents-cli</code>. The model only writes the manifest and the scripts; the CLI decides whether they are
+          legal.
         </p>
-        <p className="dim">
-          Built By Harish Kotra · harishkotra.me &nbsp;·&nbsp; Checkout my other builds · dailybuild.xyz
-        </p>
+        <p className="dim">Built By Harish Kotra · harishkotra.me &nbsp;·&nbsp; Checkout my other builds · dailybuild.xyz</p>
       </footer>
     </div>
   )

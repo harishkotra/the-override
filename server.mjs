@@ -232,7 +232,7 @@ function renderManifest(spec) {
 // ---------------------------------------------------------------- verify (real CLI)
 const sessions = new Map()
 
-async function verify(spec) {
+async function verify(spec, emit) {
   const id = crypto.randomBytes(5).toString('hex')
   const dir = path.join(SCRATCH, id)
   const extDir = path.join(dir, 'ext')
@@ -261,8 +261,12 @@ async function verify(spec) {
   }
 
   const steps = []
+  const record = (s) => {
+    steps.push(s)
+    emit?.(s)
+  }
   const add = await cli(['extension', 'add', `local@${extDir}`, '--yes'], projDir)
-  steps.push({
+  record({
     label: 'agents-cli extension add',
     cmd: `agents-cli extension add local@./${spec.name} --yes`,
     code: add.code,
@@ -274,27 +278,30 @@ async function verify(spec) {
     const primary = Object.keys(spec.commands?.override || {})[0] || Object.keys(spec.commands?.add || {})[0]
     // Three reads, three cold Python startups: run them together. `extension list`
     // walks two scopes and can lose the process on a cold start, so it gets a retry.
-    const [list, help, h] = await Promise.all([
+    const [list, info, h] = await Promise.all([
       cli(['extension', 'list'], projDir).then((r) =>
         r.code !== 0 && !r.out.trim() && !r.err.trim() ? cli(['extension', 'list'], projDir) : r,
       ),
-      cli(['--help'], projDir),
+      cli(['info'], projDir),
       primary ? cli([...primary.split('.'), '--help'], projDir) : Promise.resolve(null),
     ])
-    steps.push({ label: 'extension list', cmd: 'agents-cli extension list', code: list.code, out: (list.out + list.err).trim() || '(no output)', ms: list.ms })
+    record({ label: 'extension list', cmd: 'agents-cli extension list', code: list.code, out: (list.out + list.err).trim() || '(no output)', ms: list.ms })
 
-    const contributed = new Set([
-      ...Object.keys(spec.commands?.override || {}),
-      ...Object.keys(spec.commands?.add || {}),
-    ])
-    const tagged = help.out
-      .split('\n')
-      .filter((l) => l.includes('[↑') || [...contributed].some((c) => l.trim().startsWith(c.replace(/\./g, ' '))))
-      .join('\n')
-    steps.push({ label: 'help tag', cmd: 'agents-cli --help', code: help.code, out: tagged.trim(), ms: help.ms })
+    // `info` prints the exact command vector behind each override; `--help` wraps
+    // the [↑ name] tag at its own 80 columns and looks truncated in a wide panel.
+    const infoLines = info.out.split('\n')
+    const start = infoLines.findIndex((l) => /^Extensions/.test(l.trim()))
+    const infoOut = (start >= 0 ? infoLines.slice(start) : infoLines).join('\n').trim()
+    record({
+      label: 'what the CLI bound',
+      cmd: 'agents-cli info',
+      code: info.code,
+      out: infoOut || '(no extensions section)',
+      ms: info.ms,
+    })
 
     if (h)
-      steps.push({
+      record({
         label: 'intercepted help',
         cmd: `agents-cli ${primary} --help`,
         code: h.code,
@@ -302,7 +309,7 @@ async function verify(spec) {
         ms: h.ms,
       })
     if (seeded.length)
-      steps.push({
+      record({
         label: 'seed project state',
         cmd: `cp ${seeded.join(' ')} .`,
         code: 0,
@@ -441,7 +448,17 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/verify' && req.method === 'POST') {
       const { spec } = await readBody(req)
       if (!spec?.manifest) return json(res, 400, { error: 'nothing to verify' })
-      return json(res, 200, await verify(spec))
+      // Stream each step as the CLI finishes it, so the panel fills in live
+      // instead of going blank for the ~40s four cold Python starts take.
+      res.writeHead(200, { 'content-type': 'application/x-ndjson', 'cache-control': 'no-cache', 'x-accel-buffering': 'no' })
+      const send = (o) => res.write(JSON.stringify(o) + '\n')
+      try {
+        const result = await verify(spec, (step) => send({ type: 'step', step }))
+        send({ type: 'done', ...result })
+      } catch (e) {
+        send({ type: 'error', error: String(e.message || e) })
+      }
+      return res.end()
     }
 
     if (url.pathname === '/api/exec' && req.method === 'POST') {
